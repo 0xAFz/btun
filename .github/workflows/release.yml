@@ -1,0 +1,75 @@
+name: Release Build for boringtun-cli
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+jobs:
+  build-and-release:
+    name: Build and Release boringtun-cli for Linux x86_64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu
+
+      # Step 3: Cache Cargo dependencies (optional, but speeds up subsequent builds)
+      # Caches ~/.cargo/registry, ~/.cargo/git, and the target directory
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/ 
+          key: ${{ runner.os }}-cargo-boringtun-cli-target-${{ hashFiles('**/Cargo.lock') }} # Added -boringtun-cli to key for specificity
+          restore-keys: |
+            ${{ runner.os }}-cargo-boringtun-cli-target-
+
+      # RUSTFLAGS="-C strip=symbols" is optional for reducing binary size
+      - name: Build boringtun-cli binary
+        run: cargo build --bin boringtun-cli --verbose --release --target x86_64-unknown-linux-gnu
+        env:
+          RUSTFLAGS: "-C strip=symbols" 
+
+      - name: Prepare release artifact
+        id: prepare_artifact
+        run: |
+          BINARY_NAME="boringtun-cli"
+          
+          ARTIFACT_PATH="target/x86_64-unknown-linux-gnu/release/${BINARY_NAME}"
+          
+          RELEASE_ARTIFACT_NAME="boringtun-linux-amd64"
+          
+          echo "Binary name: ${BINARY_NAME}"
+          echo "Artifact path: ${ARTIFACT_PATH}"
+          echo "Release artifact name: ${RELEASE_ARTIFACT_NAME}"
+
+          if [ ! -f "${ARTIFACT_PATH}" ]; then
+            echo "Error: Compiled binary not found at ${ARTIFACT_PATH}"
+            echo "Listing contents of target/x86_64-unknown-linux-gnu/release/:"
+            ls -R target/x86_64-unknown-linux-gnu/release/
+            exit 1
+          fi
+          
+          mv "${ARTIFACT_PATH}" "./${RELEASE_ARTIFACT_NAME}"
+          echo "ARTIFACT_FILE_NAME=${RELEASE_ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "Prepared artifact: ./${RELEASE_ARTIFACT_NAME}"
+        shell: bash
+
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./${{ steps.prepare_artifact.outputs.ARTIFACT_FILE_NAME }}
